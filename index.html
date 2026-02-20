@@ -41,9 +41,37 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback } = React;
 
-        // 第 1~11 組對應 B~L 組 PDF（manga/棒球漫畫第{B..L}組.pdf）
-        const getPdfPath = (groupId) => `manga/棒球漫畫第${String.fromCharCode(65 + groupId)}組.pdf`;
-        const getPdfFilename = (groupId) => `棒球漫畫第${String.fromCharCode(65 + groupId)}組.pdf`;
+        // 組別配置：第 1~11 組對應 B~L 組
+        const getGroupLetter = (groupId) => String.fromCharCode(65 + groupId);
+        
+        // 組別配置：定義每組的海報和漫畫檔案
+        const groupConfig = {
+            1: { letter: 'B', poster: '海報.pdf', manga: '漫畫.pdf', hasPoster: true },
+            2: { letter: 'C', poster: '海報.pdf', manga: '漫畫.pdf', hasPoster: true },
+            3: { letter: 'D', poster: null, manga: '漫畫.pdf', hasPoster: false },
+            4: { letter: 'E', poster: '海報.jpg', manga: '漫畫.pdf', hasPoster: true },
+            5: { letter: 'F', poster: '海報.pdf', manga: '漫畫.pdf', hasPoster: true },
+            6: { letter: 'G', poster: '海報一.png', manga: '漫畫一.pdf', hasPoster: true, variant: 1 },
+            7: { letter: 'G', poster: null, manga: '漫畫二.pdf', hasPoster: false, variant: 2 },
+            8: { letter: 'H', poster: '海報.png', manga: '漫畫.pdf', hasPoster: true },
+            9: { letter: 'I', poster: '海報.jpg', manga: '漫畫.pdf', hasPoster: true },
+            10: { letter: 'J', poster: '海報.pdf', manga: '漫畫.pdf', hasPoster: true },
+            11: { letter: 'K', poster: '海報.pdf', manga: '漫畫.pdf', hasPoster: true },
+            12: { letter: 'L', poster: '海報.jpg', manga: '漫畫.pdf', hasPoster: true },
+        };
+        
+        const getPdfPath = (groupId) => {
+            const config = groupConfig[groupId];
+            return `manga/${config.letter}/${config.manga}`;
+        };
+        const getPdfFilename = (groupId) => {
+            const config = groupConfig[groupId];
+            return `${config.manga}`;
+        };
+        const getPosterPath = (groupId) => {
+            const config = groupConfig[groupId];
+            return config.hasPoster ? `manga/${config.letter}/${config.poster}` : null;
+        };
 
         if (typeof pdfjsLib !== 'undefined') {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -124,22 +152,48 @@
                 return () => clearInterval(timer);
             }, []);
 
-            // 用 PDF.js 渲染每組 PDF 第一頁當封面
+            // 載入封面：有海報的載入海報圖片，沒海報的載入 PDF 第一頁
             useEffect(() => {
                 if (!loading || typeof pdfjsLib === 'undefined') return;
                 const loadCovers = async () => {
                     const next = (id, dataUrl) => setCoverUrls((prev) => ({ ...prev, [id]: dataUrl }));
-                    for (let gid = 1; gid <= 11; gid++) {
+                    for (let gid = 1; gid <= 12; gid++) {
+                        const config = groupConfig[gid];
+                        if (!config) continue;
+                        
                         try {
-                            const pdf = await pdfjsLib.getDocument(getPdfPath(gid)).promise;
-                            const page = await pdf.getPage(1);
-                            const scale = 2;
-                            const viewport = page.getViewport({ scale });
-                            const canvas = document.createElement('canvas');
-                            canvas.width = viewport.width;
-                            canvas.height = viewport.height;
-                            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                            next(gid, canvas.toDataURL('image/jpeg', 0.85));
+                            if (config.hasPoster) {
+                                // 有海報：載入海報圖片
+                                const posterPath = getPosterPath(gid);
+                                if (posterPath) {
+                                    // 如果是 PDF 海報，用 PDF.js 渲染第一頁
+                                    if (posterPath.endsWith('.pdf')) {
+                                        const pdf = await pdfjsLib.getDocument(posterPath).promise;
+                                        const page = await pdf.getPage(1);
+                                        const scale = 2;
+                                        const viewport = page.getViewport({ scale });
+                                        const canvas = document.createElement('canvas');
+                                        canvas.width = viewport.width;
+                                        canvas.height = viewport.height;
+                                        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                                        next(gid, canvas.toDataURL('image/jpeg', 0.85));
+                                    } else {
+                                        // 圖片格式（.png, .jpg）：直接使用路徑
+                                        next(gid, posterPath);
+                                    }
+                                }
+                            } else {
+                                // 沒海報：載入 PDF 第一頁
+                                const pdf = await pdfjsLib.getDocument(getPdfPath(gid)).promise;
+                                const page = await pdf.getPage(1);
+                                const scale = 2;
+                                const viewport = page.getViewport({ scale });
+                                const canvas = document.createElement('canvas');
+                                canvas.width = viewport.width;
+                                canvas.height = viewport.height;
+                                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                                next(gid, canvas.toDataURL('image/jpeg', 0.85));
+                            }
                         } catch (e) {
                             console.warn('Cover load fail group ' + gid, e);
                         }
@@ -162,11 +216,20 @@
                 }).catch((err) => { console.warn(err); window.open(path, '_blank'); });
             }, []);
 
-            const groups = Array.from({ length: 11 }, (_, i) => ({
-                id: i + 1,
-                name: `第 ${i + 1} 組作品`,
-                theme: "棒球與 AI 敘事"
-            }));
+            const groups = [
+                { id: 1, name: '第 1 組作品', theme: '棒球與 AI 敘事' }, // B
+                { id: 2, name: '第 2 組作品', theme: '棒球與 AI 敘事' }, // C
+                { id: 3, name: '第 3 組作品', theme: '棒球與 AI 敘事' }, // D
+                { id: 4, name: '第 4 組作品', theme: '棒球與 AI 敘事' }, // E
+                { id: 5, name: '第 5 組作品', theme: '棒球與 AI 敘事' }, // F
+                { id: 6, name: '第 6 組作品', theme: '棒球與 AI 敘事' }, // G 版本一
+                { id: 7, name: '第 6 組作品（版本二）', theme: '棒球與 AI 敘事' }, // G 版本二
+                { id: 8, name: '第 7 組作品', theme: '棒球與 AI 敘事' }, // H
+                { id: 9, name: '第 8 組作品', theme: '棒球與 AI 敘事' }, // I
+                { id: 10, name: '第 9 組作品', theme: '棒球與 AI 敘事' }, // J
+                { id: 11, name: '第 10 組作品', theme: '棒球與 AI 敘事' }, // K
+                { id: 12, name: '第 11 組作品', theme: '棒球與 AI 敘事' }, // L
+            ];
 
             if (loading) {
                 return (
@@ -228,7 +291,7 @@
                                         Runners on Base: Powerful Hits from Taiwan's Baseball Comics
                                     </div>
                                 </div>
-                                <div className="space-y-6 text-slate-600 text-lg leading-relaxed md:border-l border-slate-100 md:pl-12">
+                                <div className="space-y-6 text-slate-600 text-sm leading-relaxed md:border-l border-slate-100 md:pl-12">
                                     <p>
                                         Taiwan’s baseball comics represent a passionate and steadfast cultural force. They safeguard baseball dreams, record glory, and confront scars. This fervor, woven from ink, sweat, and tears, not only condenses cultural identity regarding the “national sport” but also transforms into the opportunity for the next pitch after stepping out of the panels, continuing to write Taiwan’s baseball story.
                                     </p>
@@ -250,7 +313,7 @@
                                     <p className="text-slate-500 mt-2 font-mono uppercase tracking-widest text-xs">Scan the QR code to enter each group's session</p>
                                 </div>
                                 <div className="bg-blue-600 text-white px-4 py-2 text-sm font-bold">
-                                    11 GROUPS LOADED
+                                    12 GROUPS LOADED
                                 </div>
                             </div>
 
@@ -265,8 +328,8 @@
                                         className="group bg-white border border-slate-200 p-6 transition-all duration-200 hover:border-blue-600 hover:shadow-[8px_8px_0px_0px_rgba(37,99,235,1)] cursor-pointer"
                                     >
                                         <div className="flex justify-between items-start mb-6">
-                                            <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-bold text-lg">
-                                                {group.id.toString().padStart(2, '0')}
+                                            <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
+                                                {groupConfig[group.id]?.variant === 2 ? '06-2' : group.id <= 6 ? group.id.toString().padStart(2, '0') : (group.id - 1).toString().padStart(2, '0')}
                                             </div>
                                             <button
                                                 type="button"
@@ -278,9 +341,13 @@
                                             </button>
                                         </div>
 
-                                        <div className="aspect-square w-full bg-slate-50 border border-slate-100 flex flex-col items-center justify-center text-slate-300 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all relative mb-6 overflow-hidden">
+                                        <div className="aspect-[2/3] w-full bg-slate-50 border border-slate-100 flex flex-col items-center justify-center text-slate-300 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all relative mb-6 overflow-hidden">
                                             {coverUrls[group.id] ? (
-                                                <img src={coverUrls[group.id]} alt={`${group.name} 封面`} className={`w-full h-full object-cover ${[1, 7, 10].includes(group.id) ? 'object-center' : 'object-top'}`} />
+                                                <img 
+                                                    src={coverUrls[group.id]} 
+                                                    alt={`${group.name} 封面`} 
+                                                    className={`w-full h-full object-cover ${groupConfig[group.id]?.hasPoster ? 'object-contain' : ([1, 7, 10].includes(group.id) ? 'object-center' : 'object-top')}`} 
+                                                />
                                             ) : (
                                                 <>
                                                     <Icon name="qr" size={48} className="mb-2 opacity-50" />
